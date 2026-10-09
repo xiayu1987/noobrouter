@@ -48,7 +48,7 @@ PREFIX=$P sh "$R/install.sh" --with-deps > "$W/o3"
 grep -q 'skip apt' "$W/o3" && echo "PASS --with-deps skips apt under PREFIX"
 rc=0; PREFIX=$P sh "$R/install.sh" --bogus > /dev/null 2>&1 || rc=$?
 [ $rc = 2 ] && echo "PASS unknown option -> exit 2"
-# unconfirmed change guard (was only in release.sh before)
+# unconfirmed change guard
 mkdir -p "$P/var/lib/noobrouter-agent/fw"; echo '{}' > "$P/var/lib/noobrouter-agent/fw/pending.json"
 rc=0; PREFIX=$P sh "$R/install.sh" > "$W/o4" 2>&1 || rc=$?
 [ $rc = 1 ] && grep -q 'ABORT: unconfirmed change' "$W/o4" && echo "PASS pending change blocks install"

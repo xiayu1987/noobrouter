@@ -43,7 +43,7 @@ NoobRouter 是一个轻量的 Linux 软路由 Web 管理控制台。后端是只
 
 - 目标机：Python 3（Debian 12 自带的 3.11 或 Debian 13 的 3.13）、root 权限
 - 目标机下载工具：curl、wget 或 python3 任一即可，另需 sha256sum、tar
-- 构建机（只有发布新版本时需要）：Linux 或 macOS，Node.js ≥ 20.19，Python 3、tar、sha256sum，发布到 GitHub 还需要 git 和已登录的 gh
+- 从源码构建（可选）：Linux 或 macOS，Node.js ≥ 20.19，Python 3、tar、sha256sum
 
 ## 快速开始：在路由器上一键安装
 
@@ -67,36 +67,9 @@ curl -fsSL https://github.com/xiayu1987/noobrouter/releases/latest/download/get.
 | `--start` | 安装后启动或重启服务，并做健康检查 |
 | `--with-deps` | 用 apt 安装路由所需软件包，见下文 |
 | `--force` | 有未确认的变更时也继续安装 |
-| `NOOBROUTER_URL`（环境变量） | 下载来源，默认是 GitHub 最新 Release |
+| `NOOBROUTER_URL`（环境变量） | 下载地址，默认是 GitHub 最新 Release，可指向镜像 |
 
-私有仓库的 Release 不能匿名下载，默认地址会失败。这时把 `dist/` 放到路由器能访问的地方，用 `NOOBROUTER_URL` 指过去。注意变量要加在 `sh` 前面，而不是 `curl` 前面：
-
-```sh
-# 构建机：在 dist/ 目录起一个临时服务，用完 Ctrl+C 关闭
-cd dist && python3 -m http.server 8000
-# 路由器：
-curl -fsSL http://<构建机地址>:8000/get.sh | NOOBROUTER_URL=http://<构建机地址>:8000 sh -s -- --start
-```
-
-变量只对这一条命令生效，不会留在路由器上。
-
-## 发布新版本
-
-在构建机的项目根目录执行：
-
-```sh
-sh deploy/release.sh
-```
-
-脚本依次运行单元测试、构建前端、打包，然后用 `gh release create v<版本>` 上传 `noobrouter-agent.tar.gz`、`.sha256` 和 `get.sh`。它不会连接任何路由器。工作区有未提交的改动时会中止。
-
-| 参数 | 说明 |
-| --- | --- |
-| `--skip-build` | 直接使用已有的 `web/dist`，不重新构建 |
-| `--skip-tests` | 跳过单元测试 |
-| `--dry` | 只生成 `dist/`，不创建 Release |
-
-## 手动安装
+## 从源码安装
 
 ```sh
 cd web && npm ci && npm run build && cd ..
@@ -208,7 +181,7 @@ cd agent && python3 -m unittest tests.test_local -v
 
 - `agent/noobrouter_agent/`：后端，提供 HTTP API 并托管静态资源
 - `web/`：前端
-- `deploy/`：systemd unit、示例配置、打包、安装和发布脚本
+- `deploy/`：systemd unit、示例配置、打包和安装脚本
 
 ## 许可证
 

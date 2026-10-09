@@ -1,37 +1,37 @@
 #!/bin/sh
-# Publish a GitHub Release: test -> build web -> pack -> gh release create.
-# Nothing is pushed to any router; routers install themselves with deploy/get.sh.
-# Usage: sh deploy/release.sh [--skip-build] [--skip-tests] [--dry]
-#   --dry  build dist/ only, do not create the release
+# Maintainer one-step release: bump version -> commit -> tag -> push.
+# The tag triggers .github/workflows/release.yml, which tests, builds, packs and publishes the Release.
+# Usage: sh deploy/release.sh <version>      e.g. sh deploy/release.sh 0.1.1
+# Needs git, npm; gh is optional (only used to follow the workflow run). Works in Git Bash, WSL, Linux, macOS.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BUILD=1; TESTS=1; DRY=0
-for a in "$@"; do
-  case "$a" in
-    --skip-build) BUILD=0 ;;
-    --skip-tests) TESTS=0 ;;
-    --dry) DRY=1 ;;
-    -h|--help) sed -n '2,6p' "$0"; exit 0 ;;
-    *) echo "unknown option: $a"; exit 2 ;;
-  esac
-done
-step() { printf '\n==> %s\n' "$*"; }
-need() { command -v "$1" >/dev/null 2>&1 || { echo "missing command: $1"; exit 1; }; }
-need python3; need tar; need sha256sum
+VER=${1:-}
+case "$VER" in -h|--help|'') sed -n '2,5p' "$0"; exit 0 ;; esac
+echo "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "version must be X.Y.Z: $VER"; exit 2; }
+TAG=v$VER
+cd "$ROOT"
+die() { echo "ABORT: $*"; exit 1; }
 
-if [ $TESTS = 1 ]; then step "unit tests"; (cd "$ROOT/agent" && python3 -m unittest discover -s tests -q); fi
-if [ $BUILD = 1 ]; then
-  step "build web"; need npm
-  (cd "$ROOT/web" && { [ -d node_modules ] || npm ci; } && npm run build)
+[ -z "$(git status --porcelain)" ] || die "uncommitted changes"
+[ "$(git rev-parse --abbrev-ref HEAD)" = main ] || die "not on main"
+git fetch -q origin main --tags
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || die "main differs from origin/main; pull/push first"
+git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && die "tag $TAG already exists"
+
+INIT=agent/noobrouter_agent/__init__.py
+CUR=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$INIT")
+[ "$CUR" != "$VER" ] || die "already at $VER"
+echo "==> $CUR -> $VER"
+sed -i.bak "s/^__version__ = \".*\"/__version__ = \"$VER\"/" "$INIT" && rm -f "$INIT.bak"
+(cd web && npm version "$VER" --no-git-tag-version --allow-same-version >/dev/null)
+
+git add "$INIT" web/package.json web/package-lock.json
+git commit -q -m "Release $TAG"
+git tag -a "$TAG" -m "$TAG"
+git push -q origin main "$TAG"
+echo "==> pushed $TAG; workflow: https://github.com/xiayu1987/noobrouter/actions/workflows/release.yml"
+if command -v gh >/dev/null 2>&1; then
+  sleep 5
+  RUN=$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
+  [ -n "$RUN" ] && gh run watch "$RUN" --exit-status
 fi
-step "pack"; sh "$ROOT/deploy/pack.sh"
-cat "$ROOT/dist/noobrouter-agent.tar.gz.sha256"
-[ $DRY = 1 ] && { step "dry: dist/ ready, no release created"; exit 0; }
-
-need gh; need git
-VER=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/agent/noobrouter_agent/__init__.py")
-[ -z "$(git -C "$ROOT" status --porcelain)" ] || { echo "ABORT: uncommitted changes; commit first"; exit 1; }
-step "release v$VER"
-(cd "$ROOT" && gh release create "v$VER" --target "$(git rev-parse HEAD)" --title "v$VER" --generate-notes \
-  dist/noobrouter-agent.tar.gz dist/noobrouter-agent.tar.gz.sha256 dist/get.sh)
-step "done. on the router: curl -fsSL <release-url>/get.sh | sh -s -- --start"

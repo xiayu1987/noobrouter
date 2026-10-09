@@ -43,7 +43,7 @@ Limitations:
 
 - Target: Python 3 (3.11 on Debian 12, 3.13 on Debian 13), root privileges
 - Target download tools: any of curl, wget or python3, plus sha256sum and tar
-- Build host (only needed to publish a new version): Linux or macOS, Node.js ≥ 20.19, Python 3, tar, sha256sum; publishing to GitHub also needs git and a logged-in gh
+- Building from source (optional): Linux or macOS, Node.js ≥ 20.19, Python 3, tar, sha256sum
 
 ## Quick start: one-step install on the router
 
@@ -67,36 +67,9 @@ It does not change existing configuration; `dry_run` keeps its current value. `i
 | `--start` | Start or restart the service after install, then health check |
 | `--with-deps` | Install router packages with apt, see below |
 | `--force` | Install even when unconfirmed changes exist |
-| `NOOBROUTER_URL` (env var) | Download source; defaults to the latest GitHub Release |
+| `NOOBROUTER_URL` (env var) | Download URL; defaults to the latest GitHub Release, can point to a mirror |
 
-Releases of a private repository cannot be downloaded anonymously, so the default URL fails. Serve `dist/` somewhere the router can reach and point `NOOBROUTER_URL` at it. Put the variable before `sh`, not before `curl`:
-
-```sh
-# Build host: temporary server in dist/, stop it with Ctrl+C when done
-cd dist && python3 -m http.server 8000
-# Router:
-curl -fsSL http://<build-host>:8000/get.sh | NOOBROUTER_URL=http://<build-host>:8000 sh -s -- --start
-```
-
-The variable applies to this one command only and is not left on the router.
-
-## Publishing a new version
-
-From the project root on the build host:
-
-```sh
-sh deploy/release.sh
-```
-
-The script runs unit tests, builds the frontend and packs, then uploads `noobrouter-agent.tar.gz`, `.sha256` and `get.sh` with `gh release create v<version>`. It never connects to a router. It aborts if the working tree has uncommitted changes.
-
-| Option | Description |
-| --- | --- |
-| `--skip-build` | Use the existing `web/dist` instead of rebuilding |
-| `--skip-tests` | Skip unit tests |
-| `--dry` | Build `dist/` only, do not create the release |
-
-## Manual installation
+## Installing from source
 
 ```sh
 cd web && npm ci && npm run build && cd ..
@@ -208,7 +181,7 @@ Layout:
 
 - `agent/noobrouter_agent/`: backend, serves the HTTP API and static assets
 - `web/`: frontend
-- `deploy/`: systemd unit, example config, packaging, install and release scripts
+- `deploy/`: systemd unit, example config, packaging and install scripts
 
 ## License
 

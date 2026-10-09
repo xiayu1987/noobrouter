@@ -9,7 +9,7 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 [ -f "$ROOT/web/dist/index.html" ] || { echo "web/dist missing: cd web && npm run build"; exit 1; }
 VER=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/agent/noobrouter_agent/__init__.py")
-VER=${VER:-0.1.0}
+[ -n "$VER" ] || { echo "__version__ not found in agent/noobrouter_agent/__init__.py"; exit 1; }
 STAGE=$(mktemp -d); N=noobrouter-agent-$VER
 mkdir -p "$STAGE/$N"
 cp -R "$ROOT/agent/noobrouter_agent" "$STAGE/$N/"

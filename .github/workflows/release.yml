@@ -1,0 +1,45 @@
+# Push a tag v<version> (deploy/release.sh does this) -> test, build, pack, publish GitHub Release.
+# Release assets keep stable names so routers can use .../releases/latest/download/get.sh
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Tag matches __version__
+        run: |
+          v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' agent/noobrouter_agent/__init__.py)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != __version__ $v"; exit 1; }
+
+      - name: Unit tests
+        working-directory: agent
+        run: python3 -m unittest discover -s tests -q
+
+      - name: Build web
+        working-directory: web
+        run: npm ci && npm run build
+
+      - name: Pack + install rehearsal
+        run: sh deploy/rehearse_install.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+            dist/noobrouter-agent.tar.gz dist/noobrouter-agent.tar.gz.sha256 dist/get.sh
