@@ -1,10 +1,12 @@
 # Push a tag v<version> (deploy/release.sh does this) -> test, build, pack, publish GitHub Release.
+# Manual run (workflow_dispatch) = dry run: test, build, pack only; nothing is published.
 # Release assets keep stable names so routers can use .../releases/latest/download/get.sh
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,15 +15,16 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - name: Tag matches __version__
+        if: github.ref_type == 'tag'
         run: |
           v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' agent/noobrouter_agent/__init__.py)
           [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != __version__ $v"; exit 1; }
@@ -38,6 +41,7 @@ jobs:
         run: sh deploy/rehearse_install.sh
 
       - name: Publish release
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
