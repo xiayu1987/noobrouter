@@ -173,9 +173,11 @@ if [ -z "$PREFIX" ]; then
     # health check (<= ~10s): pass = unit active + listening on the configured addr:port.
     # The HTTP probe is informational only: a router's own firewall often admits the console port
     # on the LAN NIC only, so a request from the router itself (via lo) can be dropped.
-    python3 - "$CFG" <<'PY'
+    python3 - "$CFG" "$OPT" <<'PY'
 import json, subprocess, sys, time, urllib.request
-cfg = json.load(open(sys.argv[1]))
+sys.path.insert(0, sys.argv[2])
+from noobrouter_agent import config, firewall
+cfg = dict(config.DEFAULTS, **json.load(open(sys.argv[1])))
 host, port = cfg.get("listen", "127.0.0.1"), int(cfg.get("port", 8090))
 def active():
     return subprocess.run(["systemctl", "is-active", "--quiet", "noobrouter-agent"]).returncode == 0
@@ -198,6 +200,16 @@ try:
 except Exception as e:
     print("OK  health check: active, listening on %s:%d, dry_run=%s" % (host, port, cfg.get("dry_run", True)))
     print("    (local HTTP probe failed: %s; normal if the firewall admits port %d on the LAN NIC only)" % (e, port))
+# LAN reachability: the agent inserts a LAN-only accept at start unless dry_run; re-check what is live
+if firewall.console_lan_facing(cfg):
+    try:
+        live = subprocess.run(["iptables-save", "-t", "filter"], capture_output=True, text=True, check=True).stdout
+        if firewall.console_insert_pos(live, cfg) is not None:
+            print("WARN firewall drops tcp/%d on %s: other LAN machines cannot open the console yet.\n"
+                  "     Fix: set dry_run=false and restart the agent (it adds a LAN-only accept), or run:\n"
+                  "     iptables -I INPUT -i %s -p tcp --dport %d -j ACCEPT" % (port, cfg["lan_if"], cfg["lan_if"], port))
+    except (OSError, subprocess.CalledProcessError) as e:
+        print("    (firewall check skipped: %s)" % e)
 PY
   else
     if systemctl is-active --quiet noobrouter-agent; then

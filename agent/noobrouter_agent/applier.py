@@ -124,6 +124,30 @@ def current(cfg):
     return run(ns + ["iptables-save"]), run(ns + ["ip6tables-save"])
 
 
+def ensure_console_access(cfg):
+    """Agent start: if the live IPv4 INPUT chain would drop new LAN connections to the console port
+    (port changed by hand, or a DROP policy from before install), insert the LAN-only accept the
+    firewall guard renders anyway. Never raises: the server must start regardless.
+    Returns one of "loopback", "ok", "dry_run", "added", "error: ...". Not persisted: the next
+    firewall apply renders the same rule and confirm() saves it."""
+    from . import firewall  # local import: firewall stays a pure module without applier deps
+    if not firewall.console_lan_facing(cfg):
+        return "loopback"
+    try:
+        pos = firewall.console_insert_pos(run(_ns(cfg) + ["iptables-save", "-t", "filter"]), cfg)
+        if pos is None:
+            return "ok"
+        rule = firewall.console_rule(cfg)
+        if cfg.get("dry_run", True):
+            return "dry_run"
+        argv = ["iptables", "-I", "INPUT", str(pos)] + shlex.split(rule)[2:]
+        run(_ns(cfg) + argv)
+        log(cfg, f"console port {cfg['port']} was blocked on {cfg['lan_if']}: inserted '{rule}' at INPUT #{pos}")
+        return "added"
+    except Exception as e:  # noqa: BLE001 - startup must not fail on a firewall probe
+        return f"error: {e}"
+
+
 def _rollback_script(cfg, b4, b6, pend, last, txid, files=(), undo=(), kind="firewall"):
     """files: [{"path", "backup"|None, "mode"}]; undo: argv lists run after restore (best effort)."""
     ns = " ".join(shlex.quote(x) for x in _ns(cfg))

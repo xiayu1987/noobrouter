@@ -24,6 +24,7 @@ Adapted (not copied) from the legacy softroute.sh, cross-checked with OpenWrt fi
 """
 import ipaddress
 import re
+import shlex
 
 PORT_RE = re.compile(r"^\d{1,5}([:-]\d{1,5})?$")
 IF_RE = re.compile(r"^[A-Za-z0-9_.-]{1,15}$")
@@ -137,6 +138,162 @@ def _input_guard(model, cfg, ver):
     if ver == 4:
         out.append(f"-A INPUT -i {lan} -p icmp -j ACCEPT")
     return out
+
+
+# ---------------- console reachability (live INPUT check, used at agent start) ----------------
+
+def console_rule(cfg):
+    """LAN-only console accept, same text the guard renders (so the importer treats it as ours)."""
+    return _accept("tcp", int(cfg["port"]), cfg["lan_if"])
+
+
+def console_lan_facing(cfg):
+    """True when the agent's listen address is meant to be reached from the LAN (0.0.0.0 or a LAN IP)."""
+    try:
+        ip = ipaddress.ip_address(cfg.get("listen") or "0.0.0.0")
+    except ValueError:
+        return False
+    return ip.version == 4 and (ip.is_unspecified or ip in ipaddress.ip_network(cfg["lan_cidr"], strict=False))
+
+
+def _filter_chains(save_text):
+    """iptables-save text -> ({chain: [rule tokens]}, {builtin chain: policy}) for the filter table."""
+    chains, policy, cur = {}, {}, None
+    for line in save_text.splitlines():
+        line = line.strip()
+        if line.startswith("*"):
+            cur = line[1:]
+        elif cur == "filter" and line.startswith(":"):
+            name, pol = line[1:].split()[:2]
+            chains.setdefault(name, [])
+            if pol != "-":
+                policy[name] = pol
+        elif cur == "filter" and line.startswith("-A "):
+            tok = shlex.split(line)
+            chains.setdefault(tok[1], []).append(tok[2:])
+    return chains, policy
+
+
+ALL_TCP_FLAGS = {"FIN", "SYN", "RST", "PSH", "ACK", "URG"}
+NON_TERMINAL = {"LOG", "NFLOG", "MARK", "CONNMARK", "TCPMSS", "AUDIT"}
+
+
+def _flagset(s):
+    return ALL_TCP_FLAGS if s == "ALL" else set() if s == "NONE" else set(s.split(","))
+
+
+def _port_in(spec, port):
+    for part in spec.split(","):
+        a, _, b = part.partition(":")
+        if int(a or 0) <= port <= int(b or a or 65535):
+            return True
+    return False
+
+
+def _options(tok):
+    """Rule tokens -> [(negated, option, [values])] up to the target (-j/-g)."""
+    out, neg = [], False
+    for t in tok:
+        if t == "!":
+            neg = True
+        elif t.startswith("-") and not t.lstrip("-").isdigit():
+            if t in ("-j", "-g"):
+                break
+            out.append((neg, t, []))
+            neg = False
+        elif out:
+            out[-1][2].append(t)
+    return out
+
+
+def _match(tok, pkt):
+    """Does a new LAN TCP SYN to the console match these matchers? True / False / None (can't tell)."""
+    results = []
+    for neg, t, vals in _options(tok):
+        val = vals[0] if vals else ""
+        r = None
+        if t == "-m":
+            continue  # module name; its options are judged one by one
+        if t == "-i":
+            r = pkt["iface"].startswith(val[:-1]) if val.endswith("+") else pkt["iface"] == val
+        elif t == "-p":
+            r = val in ("tcp", "6", "all")
+        elif t == "-s":
+            net = ipaddress.ip_network(val, strict=False)
+            r = True if pkt["src"].subnet_of(net) else (None if pkt["src"].overlaps(net) else False)
+        elif t == "-d":
+            r = None if pkt["dst"] is None else pkt["dst"] in ipaddress.ip_network(val, strict=False)
+        elif t in ("--dport", "--destination-port", "--dports", "--destination-ports"):
+            r = _port_in(val, pkt["port"])
+        elif t == "--tcp-flags":
+            r = len(vals) == 2 and (_flagset(vals[0]) & {"SYN"}) == _flagset(vals[1])
+        elif t == "--syn":
+            r = True
+        elif t in ("--ctstate", "--state"):
+            r = "NEW" in val.split(",")
+        elif t == "--comment":
+            r = True
+        elif t == "--dst-type":
+            r = "LOCAL" in val.split(",")
+        elif t in ("--sport", "--source-port", "--sports", "--source-ports", "--limit", "--limit-burst"):
+            r = None  # client port / rate limit: may or may not match this connection
+        results.append((not r) if (neg and r is not None) else r)
+    if False in results:
+        return False
+    return None if None in results else True
+
+
+def _target(tok):
+    for k in ("-j", "-g"):
+        if k in tok:
+            return tok[tok.index(k) + 1]
+    return ""
+
+
+def _walk(chain, chains, pkt, certain, depth):
+    """Verdict of a user/builtin chain body: 'accept' / 'drop' / 'return' / None (fell off the end)."""
+    for tok in chains.get(chain, []):
+        v = _rule_verdict(tok, chains, pkt, certain, depth)
+        if v:
+            return v
+    return None
+
+
+def _rule_verdict(tok, chains, pkt, certain, depth):
+    m = _match(tok, pkt)
+    if m is False:
+        return None
+    sure = certain and m is True
+    tgt = _target(tok)
+    if tgt == "ACCEPT":
+        return "accept" if sure else None  # an accept we can't prove never counts
+    if tgt in ("DROP", "REJECT"):
+        return "drop"  # an uncertain drop counts: worst case is one redundant accept
+    if tgt == "RETURN":
+        return "return" if sure else None
+    if tgt in NON_TERMINAL or not tgt:
+        return None
+    if tgt in chains and depth < 8:
+        v = _walk(tgt, chains, pkt, sure, depth + 1)
+        return None if v == "return" else v
+    return "drop"  # NFQUEUE / unknown target: assume it may block
+
+
+def console_insert_pos(save_text, cfg):
+    """Live IPv4 `iptables-save` -> 1-based INPUT position where console_rule() must be inserted so a
+    new LAN connection to the console port gets through, or None when it already does."""
+    chains, policy = _filter_chains(save_text)
+    dst = ipaddress.ip_address(cfg.get("listen") or "0.0.0.0")
+    pkt = {"iface": cfg["lan_if"], "src": ipaddress.ip_network(cfg["lan_cidr"], strict=False),
+           "dst": None if dst.is_unspecified else dst, "port": int(cfg["port"])}
+    rules = chains.get("INPUT", [])
+    for pos, tok in enumerate(rules, 1):
+        v = _rule_verdict(tok, chains, pkt, True, 0)
+        if v == "accept":
+            return None
+        if v == "drop":
+            return pos
+    return None if policy.get("INPUT", "ACCEPT") == "ACCEPT" else len(rules) + 1
 
 
 def _open_rules(model, ver):

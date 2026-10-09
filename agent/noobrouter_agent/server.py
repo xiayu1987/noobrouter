@@ -14,10 +14,18 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlsplit
 
-from . import api, config, i18n
+from . import api, applier, config, i18n
 from .shell import CmdError
 
 MAX_BODY = 1 << 20
+
+CONSOLE_FW_MSG = {
+    "ok": None, "loopback": None,
+    "added": "firewall: console port {port} was blocked on {lan_if}; added a LAN-only accept "
+             "(kept until the next firewall apply, which renders the same rule)",
+    "dry_run": "WARNING firewall drops port {port} on {lan_if}: LAN clients cannot reach the console "
+               "(dry_run=true, rule not added; apply the firewall or open the port by hand)",
+}
 
 
 def error_status(e):
@@ -122,6 +130,11 @@ def main(argv=None):
     cfg = config.load(args.config)
     srv = ThreadingHTTPServer((cfg["listen"], int(cfg["port"])), make_handler(cfg))
     print(f"noobrouter-agent listening on {cfg['listen']}:{cfg['port']} dry_run={cfg['dry_run']}", flush=True)
+    res = applier.ensure_console_access(cfg)
+    msg = CONSOLE_FW_MSG.get(res, "WARNING console firewall check failed ({res}); "
+                                  "LAN clients may not reach port {port}")
+    if msg:
+        print(msg.format(port=cfg["port"], lan_if=cfg["lan_if"], res=res), flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
