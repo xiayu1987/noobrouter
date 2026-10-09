@@ -209,3 +209,7 @@ cd agent && python3 -m unittest tests.test_local -v
 - `agent/noobrouter_agent/`：后端，提供 HTTP API 并托管静态资源
 - `web/`：前端
 - `deploy/`：systemd unit、示例配置、打包、安装和发布脚本
+
+## 许可证
+
+[MIT](LICENSE)

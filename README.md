@@ -209,3 +209,7 @@ Layout:
 - `agent/noobrouter_agent/`: backend, serves the HTTP API and static assets
 - `web/`: frontend
 - `deploy/`: systemd unit, example config, packaging, install and release scripts
+
+## License
+
+[MIT](LICENSE)
