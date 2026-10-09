@@ -1,0 +1,14 @@
+{
+  "listen": "127.0.0.1",
+  "port": 8090,
+  "token": "",
+  "dry_run": true,
+  "wan_if": "ppp0",
+  "wan_phy_if": "CHECK_ME",
+  "lan_if": "CHECK_ME",
+  "lan_cidr": "192.168.1.0/24",
+  "web_root": "/opt/noobrouter-agent/web",
+  "data_dir": "/var/lib/noobrouter-agent",
+  "rollback_seconds": 90,
+  "guard_ssh_port": 22
+}

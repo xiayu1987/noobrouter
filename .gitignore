@@ -1,0 +1,27 @@
+# Build output
+dist/
+web/dist/
+*.tgz
+*.tar.gz
+
+# Dependencies / caches
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets and local SSH material
+$K/
+id_*
+!id_*.pub
+*.pem
+*.key
+known_hosts*
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

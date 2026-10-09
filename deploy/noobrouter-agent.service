@@ -1,0 +1,18 @@
+[Unit]
+Description=noobrouter-agent (soft router web console API)
+After=network-online.target dnsmasq.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/noobrouter-agent
+ExecStart=/usr/bin/python3 -m noobrouter_agent.server -c /etc/noobrouter-agent.json
+Restart=on-failure
+RestartSec=5
+# Needs root for iptables-restore / dnsmasq / systemd-run rollback timers.
+User=root
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,59 @@
+# Sample `iptables-save` of a pppoeconf + NetworkManager router (anonymized), used as import fixture
+*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+:mt_rtr_4_m_rtr - [0:0]
+-A FORWARD -o ppp0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m tcpmss --mss 1400:65495 -j TCPMSS --clamp-mss-to-pmtu
+-A FORWARD -o ppp0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m tcpmss --mss 1400:65495 -j TCPMSS --clamp-mss-to-pmtu
+-A mt_rtr_4_m_rtr -o ppp0 -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+-A mt_rtr_4_m_rtr -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A mt_rtr_4_m_rtr -m conntrack --ctstate INVALID -j DROP
+-A mt_rtr_4_m_rtr -i br_lan -o ppp0 -j ACCEPT
+COMMIT
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 21002 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 18080 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 40000:40100 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 45000:45100 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 8443 -j ACCEPT
+-A INPUT -p udp -m udp --dport 27015 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 21005 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 53 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 67 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 68 -j ACCEPT
+-A INPUT -p udp -m udp --dport 53 -j ACCEPT
+-A INPUT -p udp -m udp --dport 67 -j ACCEPT
+-A INPUT -p udp -m udp --dport 68 -j ACCEPT
+-A INPUT -p udp -m udp --dport 21000 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 21003 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 21004 -j ACCEPT
+-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -j DROP
+COMMIT
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+:mt_rtr_4_n_rtr - [0:0]
+-A PREROUTING -p udp -m udp --dport 21000 -j DNAT --to-destination 192.168.50.20:21000
+-A PREROUTING -p tcp -m tcp --dport 21003 -j DNAT --to-destination 192.168.50.20:8002
+-A PREROUTING -p tcp -m tcp --dport 21004 -j DNAT --to-destination 192.168.50.20:21004
+-A PREROUTING -p tcp -m tcp --dport 21005 -j DNAT --to-destination 192.168.50.30:445
+-A PREROUTING -p udp -m udp --dport 27015 -j DNAT --to-destination 192.168.50.40:27015
+-A PREROUTING -p tcp -m tcp --dport 8443 -j DNAT --to-destination 192.168.50.40:8443
+-A PREROUTING -p tcp -m tcp --dport 45000:45100 -j DNAT --to-destination 192.168.50.20:45000-45100
+-A PREROUTING -p tcp -m tcp --dport 40000:40100 -j DNAT --to-destination 192.168.50.60:40000-40100
+-A PREROUTING -p tcp -m tcp --dport 21002 -j DNAT --to-destination 192.168.50.60:21002
+-A PREROUTING -p tcp -m tcp --dport 18080 -j DNAT --to-destination 192.168.50.60:18080
+-A POSTROUTING -j mt_rtr_4_n_rtr
+-A mt_rtr_4_n_rtr -o lan0 -j MASQUERADE
+-A mt_rtr_4_n_rtr -o ppp0 -j MASQUERADE
+COMMIT
