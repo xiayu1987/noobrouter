@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy to local.json (git-ignored) to run test_local.py against your own router. cfg: same keys as /etc/noobrouter-agent.json. iptables_save: path relative to agent/tests; put it under fixtures/local/ (git-ignored), e.g. ssh root@<router> iptables-save > agent/tests/fixtures/local/iptables_save.txt. expect: optional counts to assert.",
+  "cfg": {
+    "wan_if": "ppp0",
+    "wan_phy_if": "eth0",
+    "lan_if": "eth1",
+    "lan_cidr": "192.168.1.0/24",
+    "guard_ssh_port": 22
+  },
+  "iptables_save": "fixtures/local/iptables_save.txt",
+  "expect": {
+    "forwards": 0,
+    "skipped": 0
+  }
+}

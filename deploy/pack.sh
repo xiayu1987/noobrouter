@@ -1,5 +1,9 @@
 #!/bin/sh
-# Build a release tarball: dist/noobrouter-agent-<ver>.tar.gz
+# Build the release files into dist/:
+#   noobrouter-agent.tar.gz          (contains noobrouter-agent-<ver>/)
+#   noobrouter-agent.tar.gz.sha256
+#   get.sh                           (router-side one-step installer)
+# Stable file names so get.sh can use .../releases/latest/download/<name>.
 # Requires web/dist (run `npm run build` in web/ first). Run in WSL/Linux.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -12,7 +16,10 @@ cp -R "$ROOT/agent/noobrouter_agent" "$STAGE/$N/"
 cp -R "$ROOT/web/dist" "$STAGE/$N/web"
 cp "$ROOT/deploy/install.sh" "$ROOT/deploy/noobrouter-agent.service" "$ROOT/deploy/noobrouter-agent.example.json" "$STAGE/$N/"
 find "$STAGE" -name __pycache__ -type d -prune -exec rm -rf {} +
-mkdir -p "$ROOT/dist"
-tar -C "$STAGE" -czf "$ROOT/dist/$N.tar.gz" "$N"
+OUT=$ROOT/dist; mkdir -p "$OUT"
+rm -f "$OUT"/noobrouter-agent-*.tar.gz  # old versioned name
+tar -C "$STAGE" -czf "$OUT/noobrouter-agent.tar.gz" "$N"
 rm -rf "$STAGE"
-echo "$ROOT/dist/$N.tar.gz"
+(cd "$OUT" && sha256sum noobrouter-agent.tar.gz > noobrouter-agent.tar.gz.sha256)
+cp "$ROOT/deploy/get.sh" "$OUT/get.sh"
+echo "$OUT/noobrouter-agent.tar.gz"

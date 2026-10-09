@@ -20,6 +20,10 @@ known_hosts*
 .env
 .env.*
 
+# Private local test data (see agent/tests/local.example.json)
+agent/tests/local.json
+agent/tests/fixtures/local/
+
 # Editor / OS
 .vscode/
 .idea/

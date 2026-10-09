@@ -42,45 +42,67 @@ Limitations:
 ## Requirements
 
 - Target: Python 3 (3.11 on Debian 12, 3.13 on Debian 13), root privileges
-- Build host: Linux or macOS, Node.js ≥ 20.19, Python 3, ssh, scp, tar
+- Target download tools: any of curl, wget or python3, plus sha256sum and tar
+- Build host (only needed to publish a new version): Linux or macOS, Node.js ≥ 20.19, Python 3, tar, sha256sum; publishing to GitHub also needs git and a logged-in gh
 
-## Quick start: one-step release
+## Quick start: one-step install on the router
+
+Run as root on the router:
+
+```sh
+curl -fsSL https://github.com/xiayu1987/noobrouter/releases/latest/download/get.sh | sh -s -- --start
+```
+
+`get.sh` runs these steps in order and stops at the first failure:
+
+1. Download `noobrouter-agent.tar.gz` and its `.sha256`.
+2. Verify sha256; abort on mismatch.
+3. Extract and run `install.sh` with the same options.
+4. With `--start`, health check: the service is active and listening on the configured address.
+
+It does not change existing configuration; `dry_run` keeps its current value. `install.sh` aborts if there are unconfirmed firewall or setup changes.
+
+| Option | Description |
+| --- | --- |
+| `--start` | Start or restart the service after install, then health check |
+| `--with-deps` | Install router packages with apt, see below |
+| `--force` | Install even when unconfirmed changes exist |
+| `NOOBROUTER_URL` (env var) | Download source; defaults to the latest GitHub Release |
+
+Releases of a private repository cannot be downloaded anonymously, so the default URL fails. Serve `dist/` somewhere the router can reach and point `NOOBROUTER_URL` at it. Put the variable before `sh`, not before `curl`:
+
+```sh
+# Build host: temporary server in dist/, stop it with Ctrl+C when done
+cd dist && python3 -m http.server 8000
+# Router:
+curl -fsSL http://<build-host>:8000/get.sh | NOOBROUTER_URL=http://<build-host>:8000 sh -s -- --start
+```
+
+The variable applies to this one command only and is not left on the router.
+
+## Publishing a new version
 
 From the project root on the build host:
 
 ```sh
-sh deploy/release.sh root@<router-address>
+sh deploy/release.sh
 ```
 
-The script runs these steps in order and stops at the first failure:
-
-1. Run unit tests.
-2. Build the frontend.
-3. Package.
-4. Upload to the target and verify sha256.
-5. Run `install.sh --start` on the target.
-6. Health check: request the configured address and expect HTTP 200.
-
-It does not change existing configuration on the target; `dry_run` keeps its current value. The script aborts if the target has unconfirmed firewall or setup changes.
+The script runs unit tests, builds the frontend and packs, then uploads `noobrouter-agent.tar.gz`, `.sha256` and `get.sh` with `gh release create v<version>`. It never connects to a router. It aborts if the working tree has uncommitted changes.
 
 | Option | Description |
 | --- | --- |
-| `-p PORT` / `-i FILE` / `-F FILE` | SSH port, private key, config file |
 | `--skip-build` | Use the existing `web/dist` instead of rebuilding |
 | `--skip-tests` | Skip unit tests |
-| `--with-deps` | Install router packages with apt, see below |
-| `--no-start` | Install only, do not restart the service |
-| `--force` | Release even when unconfirmed changes exist |
-
-The remote user must be root or have passwordless sudo.
+| `--dry` | Build `dist/` only, do not create the release |
 
 ## Manual installation
 
 ```sh
 cd web && npm ci && npm run build && cd ..
-sh deploy/pack.sh                                   # produces dist/noobrouter-agent-<version>.tar.gz
-scp dist/noobrouter-agent-*.tar.gz root@<router>:/tmp/
-ssh root@<router> 'cd /tmp && tar xzf noobrouter-agent-*.tar.gz && sh noobrouter-agent-*/install.sh --start'
+sh deploy/pack.sh          # produces dist/noobrouter-agent.tar.gz, .sha256, get.sh
+# Copy noobrouter-agent.tar.gz to the router, then on the router:
+tar xzf noobrouter-agent.tar.gz && sh noobrouter-agent-*/install.sh --start
 ```
 
 What `install.sh` does:
@@ -88,6 +110,7 @@ What `install.sh` does:
 - Installs the code to `/opt/noobrouter-agent` and registers the systemd service `noobrouter-agent`.
 - Creates `/etc/noobrouter-agent.json` (mode 0600) on first install; an existing config is never overwritten.
 - Does not touch the firewall, network or dnsmasq. Without `--start` it does not start or restart the service.
+- Aborts while a change is unconfirmed (`fw/pending.json` or a `noobrouter-rollback` timer); confirm or roll back first, or pass `--force`.
 - `--with-deps`: installs `iptables iptables-persistent dnsmasq ppp ifupdown iproute2 isc-dhcp-client`. A newly installed dnsmasq is left stopped until the setup wizard configures it.
 
 ## Configuration
@@ -137,7 +160,7 @@ netplan / systemd-networkd only produce warnings. Their config is backed up and 
 
 ## Upgrading
 
-Run `release.sh` again, or install the new package manually with `install.sh --start`. Config and token are preserved.
+Run the `get.sh` command from Quick start again on the router, or install the new package manually with `install.sh --start`. Config and token are preserved.
 
 When upgrading from the old softroute-agent, `install.sh` migrates automatically:
 
@@ -167,6 +190,19 @@ sudo sh agent/tests/smoke_http.sh                     # HTTP smoke test (reading
 sudo sh agent/tests/e2e_dist.sh                       # end-to-end test against web/dist (needs root)
 sh deploy/rehearse_install.sh                         # pack + install rehearsal (PREFIX install, host untouched; init API check skipped when not root)
 ```
+
+Local tests against your own router's data (never committed):
+
+```sh
+cp agent/tests/local.example.json agent/tests/local.json      # edit cfg for your NICs and subnet
+mkdir -p agent/tests/fixtures/local
+ssh root@<router> iptables-save > agent/tests/fixtures/local/iptables_save.txt
+cd agent && python3 -m unittest tests.test_local -v
+```
+
+- `local.json` and `fixtures/local/` are excluded in `.gitignore`.
+- `expect` can hold the expected forward and skipped counts to assert on.
+- Without `local.json`, `test_local` is skipped and other tests are unaffected.
 
 Layout:
 

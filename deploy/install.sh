@@ -5,16 +5,19 @@
 #  - does NOT enable or start the service unless --start is given
 #  - --with-deps installs the router packages (ppp, dnsmasq, iptables...) for a blank Debian, but
 #    leaves them unconfigured/stopped: the web init wizard configures them in one rollback transaction
-# Usage: sh install.sh [--start] [--with-deps]     (PREFIX=/tmp/x sh install.sh for a dry install)
+#  - refuses to run while a firewall/init change is unconfirmed (a restart would race the rollback timer)
+#  - with --start, health-checks the configured listen address afterwards
+# Usage: sh install.sh [--start] [--with-deps] [--force]   (PREFIX=/tmp/x sh install.sh for a dry install)
 #  - upgrades a legacy softroute-agent install in place (config, data dir + token, unit); see migrate_legacy
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 PREFIX=${PREFIX:-}
-START=0; DEPS=0
+START=0; DEPS=0; FORCE=0
 for a in "$@"; do
   case "$a" in
     --start) START=1 ;;
     --with-deps) DEPS=1 ;;
+    --force) FORCE=1 ;;
     *) echo "unknown option: $a"; exit 2 ;;
   esac
 done
@@ -24,6 +27,15 @@ UNIT=$PREFIX/etc/systemd/system/noobrouter-agent.service
 
 command -v python3 >/dev/null || { echo "python3 not found"; exit 1; }
 [ -d "$HERE/noobrouter_agent" ] && [ -f "$HERE/web/index.html" ] || { echo "release incomplete (noobrouter_agent/ or web/ missing)"; exit 1; }
+
+# ---- unconfirmed change guard: restarting the agent now would race the rollback timer ----
+if [ $FORCE = 0 ]; then
+  if [ -f "$PREFIX/var/lib/noobrouter-agent/fw/pending.json" ] || \
+     { [ -z "$PREFIX" ] && systemctl list-units --all --no-legend 'noobrouter-rollback*' 2>/dev/null | grep -q .; }; then
+    echo "ABORT: unconfirmed change pending (fw/pending.json or noobrouter-rollback timer); confirm or roll back first, or use --force"
+    exit 1
+  fi
+fi
 
 # ---- legacy softroute-agent -> noobrouter-agent (agent only; never touches network config) ----
 OLD_CFG=$PREFIX/etc/softroute-agent.json
@@ -158,6 +170,35 @@ if [ -z "$PREFIX" ]; then
     systemctl enable noobrouter-agent
     systemctl restart noobrouter-agent
     sleep 1; systemctl --no-pager status noobrouter-agent | head -n 5
+    # health check (<= ~10s): pass = unit active + listening on the configured addr:port.
+    # The HTTP probe is informational only: a router's own firewall often admits the console port
+    # on the LAN NIC only, so a request from the router itself (via lo) can be dropped.
+    python3 - "$CFG" <<'PY'
+import json, subprocess, sys, time, urllib.request
+cfg = json.load(open(sys.argv[1]))
+host, port = cfg.get("listen", "127.0.0.1"), int(cfg.get("port", 8090))
+def active():
+    return subprocess.run(["systemctl", "is-active", "--quiet", "noobrouter-agent"]).returncode == 0
+def listening():
+    out = subprocess.run(["ss", "-Hltn", "sport", "= :%d" % port], capture_output=True, text=True).stdout
+    return any(l.split()[3] in ("%s:%d" % (host, port), "0.0.0.0:%d" % port, "*:%d" % port)
+               for l in out.splitlines() if len(l.split()) > 3)
+ok = False
+for _ in range(8):
+    if active() and listening():
+        ok = True
+        break
+    time.sleep(1)
+if not ok:
+    print("FAIL health check: noobrouter-agent not active/listening on %s:%d (journalctl -u noobrouter-agent)" % (host, port))
+    sys.exit(1)
+try:
+    code = urllib.request.urlopen("http://%s:%d/" % (host, port), timeout=2).status
+    print("OK  health check %s:%d -> HTTP %s, dry_run=%s" % (host, port, code, cfg.get("dry_run", True)))
+except Exception as e:
+    print("OK  health check: active, listening on %s:%d, dry_run=%s" % (host, port, cfg.get("dry_run", True)))
+    print("    (local HTTP probe failed: %s; normal if the firewall admits port %d on the LAN NIC only)" % (e, port))
+PY
   else
     if systemctl is-active --quiet noobrouter-agent; then
       echo "installed. agent is running OLD code until: systemctl restart noobrouter-agent"

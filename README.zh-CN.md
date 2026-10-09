@@ -42,45 +42,67 @@ NoobRouter 是一个轻量的 Linux 软路由 Web 管理控制台。后端是只
 ## 环境要求
 
 - 目标机：Python 3（Debian 12 自带的 3.11 或 Debian 13 的 3.13）、root 权限
-- 构建机：Linux 或 macOS，Node.js ≥ 20.19，Python 3、ssh、scp、tar
+- 目标机下载工具：curl、wget 或 python3 任一即可，另需 sha256sum、tar
+- 构建机（只有发布新版本时需要）：Linux 或 macOS，Node.js ≥ 20.19，Python 3、tar、sha256sum，发布到 GitHub 还需要 git 和已登录的 gh
 
-## 快速开始：一键发布
+## 快速开始：在路由器上一键安装
+
+以 root 身份在路由器上执行：
+
+```sh
+curl -fsSL https://github.com/xiayu1987/noobrouter/releases/latest/download/get.sh | sh -s -- --start
+```
+
+`get.sh` 按顺序执行以下步骤，任一步失败都会停止：
+
+1. 下载 `noobrouter-agent.tar.gz` 和 `.sha256`。
+2. 校验 sha256，不一致就中止。
+3. 解压并运行 `install.sh`，参数原样传入。
+4. 带 `--start` 时做健康检查：服务为 active，并在配置的地址上监听。
+
+它不会改动已有的配置，`dry_run` 保持原值。有未确认的防火墙或初始化变更时，`install.sh` 会中止。
+
+| 参数 | 说明 |
+| --- | --- |
+| `--start` | 安装后启动或重启服务，并做健康检查 |
+| `--with-deps` | 用 apt 安装路由所需软件包，见下文 |
+| `--force` | 有未确认的变更时也继续安装 |
+| `NOOBROUTER_URL`（环境变量） | 下载来源，默认是 GitHub 最新 Release |
+
+私有仓库的 Release 不能匿名下载，默认地址会失败。这时把 `dist/` 放到路由器能访问的地方，用 `NOOBROUTER_URL` 指过去。注意变量要加在 `sh` 前面，而不是 `curl` 前面：
+
+```sh
+# 构建机：在 dist/ 目录起一个临时服务，用完 Ctrl+C 关闭
+cd dist && python3 -m http.server 8000
+# 路由器：
+curl -fsSL http://<构建机地址>:8000/get.sh | NOOBROUTER_URL=http://<构建机地址>:8000 sh -s -- --start
+```
+
+变量只对这一条命令生效，不会留在路由器上。
+
+## 发布新版本
 
 在构建机的项目根目录执行：
 
 ```sh
-sh deploy/release.sh root@<路由器地址>
+sh deploy/release.sh
 ```
 
-脚本按顺序执行以下步骤，任一步失败都会停止：
-
-1. 运行单元测试。
-2. 构建前端。
-3. 打包。
-4. 上传到目标机并校验 sha256。
-5. 在目标机上运行 `install.sh --start`。
-6. 健康检查：访问配置的地址，确认返回 HTTP 200。
-
-它不会改动目标机上已有的配置，`dry_run` 保持原值。目标机上有未确认的防火墙或初始化变更时，脚本会中止。
+脚本依次运行单元测试、构建前端、打包，然后用 `gh release create v<版本>` 上传 `noobrouter-agent.tar.gz`、`.sha256` 和 `get.sh`。它不会连接任何路由器。工作区有未提交的改动时会中止。
 
 | 参数 | 说明 |
 | --- | --- |
-| `-p PORT` / `-i FILE` / `-F FILE` | SSH 端口、私钥、配置文件 |
 | `--skip-build` | 直接使用已有的 `web/dist`，不重新构建 |
 | `--skip-tests` | 跳过单元测试 |
-| `--with-deps` | 用 apt 安装路由所需软件包，见下文 |
-| `--no-start` | 只安装，不重启服务 |
-| `--force` | 有未确认的变更时也继续发布 |
-
-远端用户需要是 root，或者有免密 sudo。
+| `--dry` | 只生成 `dist/`，不创建 Release |
 
 ## 手动安装
 
 ```sh
 cd web && npm ci && npm run build && cd ..
-sh deploy/pack.sh                                   # 生成 dist/noobrouter-agent-<版本>.tar.gz
-scp dist/noobrouter-agent-*.tar.gz root@<路由器>:/tmp/
-ssh root@<路由器> 'cd /tmp && tar xzf noobrouter-agent-*.tar.gz && sh noobrouter-agent-*/install.sh --start'
+sh deploy/pack.sh          # 生成 dist/noobrouter-agent.tar.gz、.sha256、get.sh
+# 把 noobrouter-agent.tar.gz 复制到路由器，然后在路由器上执行：
+tar xzf noobrouter-agent.tar.gz && sh noobrouter-agent-*/install.sh --start
 ```
 
 `install.sh` 的行为：
@@ -88,6 +110,7 @@ ssh root@<路由器> 'cd /tmp && tar xzf noobrouter-agent-*.tar.gz && sh noobrou
 - 代码安装到 `/opt/noobrouter-agent`，并注册 systemd 服务 `noobrouter-agent`。
 - 第一次安装会生成 `/etc/noobrouter-agent.json`（权限 0600），已有配置不会被覆盖。
 - 不会改动防火墙、网络和 dnsmasq。不加 `--start` 时不会启动或重启服务。
+- 有未确认的变更（`fw/pending.json` 或 `noobrouter-rollback` 定时器）时中止，需要先确认或回滚，或者加 `--force`。
 - `--with-deps`：安装 `iptables iptables-persistent dnsmasq ppp ifupdown iproute2 isc-dhcp-client`。新装的 dnsmasq 保持停止状态，等初始化向导配置。
 
 ## 配置
@@ -137,7 +160,7 @@ netplan / systemd-networkd 只会给出警告。初始化时会备份并移走�
 
 ## 升级
 
-重新执行 `release.sh`，或手动安装新包时带上 `install.sh --start`。配置和 token 会保留。
+在路由器上重新执行快速开始里的 `get.sh` 命令，或手动安装新包时带上 `install.sh --start`。配置和 token 会保留。
 
 从旧版 softroute-agent 升级时，`install.sh` 会自动迁移：
 
@@ -167,6 +190,19 @@ sudo sh agent/tests/smoke_http.sh                     # HTTP 冒烟测试（读�
 sudo sh agent/tests/e2e_dist.sh                       # 基于 web/dist 的端到端测试（需要 root）
 sh deploy/rehearse_install.sh                         # 打包 + 安装演练（PREFIX 安装，不改动本机系统；非 root 时跳过 init 接口检查）
 ```
+
+用自己路由器的数据做本地测试（不进仓库）：
+
+```sh
+cp agent/tests/local.example.json agent/tests/local.json      # 按自己的网卡、网段修改 cfg
+mkdir -p agent/tests/fixtures/local
+ssh root@<路由器> iptables-save > agent/tests/fixtures/local/iptables_save.txt
+cd agent && python3 -m unittest tests.test_local -v
+```
+
+- `local.json` 和 `fixtures/local/` 已在 `.gitignore` 中排除。
+- `expect` 里可以填期望的端口转发条数和跳过条数，用来做断言。
+- 没有 `local.json` 时，`test_local` 自动跳过，不影响其他测试。
 
 目录结构：
 
