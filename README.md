@@ -2,16 +2,16 @@
 
 English | [简体中文](README.zh-CN.md)
 
-NoobRouter is a lightweight web console for Linux soft routers. The backend is an agent that depends only on the Python 3 standard library; the frontend is Vue 3 + Element Plus. The UI is available in English and Chinese.
+NoobRouter turns an ordinary Linux machine into a soft router. No OpenWrt or other special firmware to flash; it stays the Debian system you already know. After installing, the setup wizard configures PPPoE/DHCP uplink, LAN DHCP/DNS and the firewall, and day-to-day port forwarding, device management, traffic monitoring and troubleshooting all happen in the browser. Firewall changes roll back automatically on timeout, so you won't lock yourself out.
 
 ## Features
 
+- Setup wizard: turns a blank machine into a soft router; WAN supports PPPoE, DHCP and static addressing
 - Overview: CPU, memory, WAN status, live traffic chart
 - Network: interfaces, routing table, online devices (DHCP leases + ARP), connection tracking
 - Firewall: port forwarding (DNAT), WAN open ports, security and forwarding options, import of existing rules, preview, and automatic rollback on timeout when applying
 - DHCP / DNS: static leases and local DNS records, with conflict detection and preview
 - Service status and logs, network diagnostics (ping, traceroute, DNS lookup)
-- Setup wizard: turns a blank machine into a soft router; WAN supports PPPoE, DHCP and static addressing
 
 ## Supported systems
 
